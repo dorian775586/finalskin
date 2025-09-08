@@ -17,7 +17,7 @@ def get_dmarket_price(item_name):
     Получает цену предмета с DMarket API.
     """
     try:
-        # DMarket API требует параметры в теле запроса (POST)
+        # DMarket API требует POST-запрос с параметрами в JSON
         payload = {
             "title": item_name,
             "price_from": 0,
@@ -33,7 +33,7 @@ def get_dmarket_price(item_name):
             "Content-Type": "application/json"
         }
         
-        # Исправленный URL
+        # Исправленный запрос с методом POST
         resp = requests.post("https://api.dmarket.com/exchange/v1/market/items?side=sell", json=payload, headers=headers, timeout=10)
         resp.raise_for_status()
         price_data = resp.json()
