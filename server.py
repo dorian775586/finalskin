@@ -17,20 +17,20 @@ def get_dmarket_price(item_name):
     Получает цену предмета с DMarket API.
     """
     try:
-        # Используем GET-запрос, как и требуется для этого API
-        url = "https://api.dmarket.com/exchange/v1/market/items?side=sell"
+        # Используем GET-запрос с правильным URL и gameId
+        url = "https://api.dmarket.com/exchange/v1/market/items"
         params = {
             "title": item_name,
-            "price_from": 0,
-            "price_to": 100000,
+            "side": "sell",
             "currency": "USD",
             "orderBy": "price",
             "orderDir": "asc",
-            "limit": 1
+            "limit": 1,
+            "gameId": "a8db"
         }
         
         headers = {
-            "X-App-Id": "YOUR_DMARKET_APP_ID_HERE" # В реальном приложении нужно использовать ваш App ID
+            "X-App-Id": "YOUR_DMARKET_APP_ID_HERE"
         }
 
         # Отправляем GET-запрос с правильными параметрами
@@ -39,7 +39,8 @@ def get_dmarket_price(item_name):
         price_data = resp.json()
 
         if price_data.get('status') == 'ok' and price_data.get('objects'):
-            lowest_price = float(price_data['objects'][0]['price']['USD']['amount']) / 100.0
+            # Извлекаем цену из правильного поля, как в твоем коде
+            lowest_price = float(price_data['objects'][0]['price']['USD']) / 100.0
             return f"${lowest_price:.2f}"
         else:
             return None
@@ -112,7 +113,7 @@ def combined_item():
     dmarket_price = get_dmarket_price(item_name)
     if dmarket_price:
         dmarket_price_float = float(dmarket_price.replace('$', ''))
-        dmarket_link = f"https://dmarket.com/ingame-items/item-list?title={urllib.parse.quote(item_name)}"
+        dmarket_link = f"https://dmarket.com/ingame-items/item-list/csgo-skins?title={urllib.parse.quote(item_name)}"
 
     # 3. Сравнение цен и выбор лучшей
     if steam_price and dmarket_price:
