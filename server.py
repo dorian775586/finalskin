@@ -29,19 +29,18 @@ def get_dmarket_price(item_name):
         }
         
         headers = {
-            "X-App-Id": "YOUR_DMARKET_APP_ID_HERE"
+            "X-App-Id": "0xEB3D26980C99b1ca13b29394740b150651c39AAe"
         }
 
-        # Отправляем GET-запрос с правильными параметрами
         resp = requests.get(url, params=params, headers=headers, timeout=10)
-        resp.raise_for_status() # Это вызовет исключение для 4xx и 5xx ошибок
+        resp.raise_for_status()
         price_data = resp.json()
 
         if price_data.get('status') == 'ok' and price_data.get('objects'):
             lowest_price = float(price_data['objects'][0]['price']['USD']) / 100.0
             return f"${lowest_price:.2f}"
         else:
-            print("DMarket API: Нет данных о предмете, или структура ответа неверна.")
+            print(f"DMarket API: Нет данных о предмете '{item_name}'")
             return None
     except requests.exceptions.RequestException as e:
         print(f"Ошибка при запросе DMarket API: {e}")
