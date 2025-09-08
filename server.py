@@ -17,7 +17,6 @@ def get_dmarket_price(item_name):
     Получает цену предмета с DMarket API.
     """
     try:
-        # Используем GET-запрос с правильным URL и gameId
         url = "https://api.dmarket.com/exchange/v1/market/items"
         params = {
             "title": item_name,
@@ -35,16 +34,16 @@ def get_dmarket_price(item_name):
 
         # Отправляем GET-запрос с правильными параметрами
         resp = requests.get(url, params=params, headers=headers, timeout=10)
-        resp.raise_for_status()
+        resp.raise_for_status() # Это вызовет исключение для 4xx и 5xx ошибок
         price_data = resp.json()
 
         if price_data.get('status') == 'ok' and price_data.get('objects'):
-            # Извлекаем цену из правильного поля, как в твоем коде
             lowest_price = float(price_data['objects'][0]['price']['USD']) / 100.0
             return f"${lowest_price:.2f}"
         else:
+            print("DMarket API: Нет данных о предмете, или структура ответа неверна.")
             return None
-    except requests.RequestException as e:
+    except requests.exceptions.RequestException as e:
         print(f"Ошибка при запросе DMarket API: {e}")
         return None
 
@@ -101,7 +100,6 @@ def combined_item():
         price_data = resp.json()
         if price_data.get('success'):
             steam_price = price_data.get("lowest_price")
-            # Cleaning the price string from currency symbols
             if steam_price:
                 steam_price_float = float(steam_price.replace('$', '').replace(' USD', '').replace(',', ''))
             encoded_item_name = urllib.parse.quote(item_name)
