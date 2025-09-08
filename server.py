@@ -61,12 +61,14 @@ def item():
         resp.raise_for_status()
         price_data = resp.json()
 
-        # Формирование ссылки на предмет
-        link = f"https://steamcommunity.com/market/listings/{STEAM_APP_ID}/{urllib.parse.quote_plus(item_name)}"
+        # >>>>>> ИСПРАВЛЕНИЕ ЗДЕСЬ <<<<<<
+        # Теперь мы используем urllib.parse.quote() вместо quote_plus()
+        encoded_item_name = urllib.parse.quote(item_name)
+        link = f"https://steamcommunity.com/market/listings/{STEAM_APP_ID}/{encoded_item_name}"
+        # >>>>>> ИСПРАВЛЕНИЕ ЗАКОНЧИЛОСЬ <<<<<<
 
         # Проверка наличия данных в ответе Steam API
         if not price_data or price_data.get('success') is False:
-            # Если данные не получены, возвращаем пустое значение
             result = {
                 "item_name": item_name,
                 "lowest_price": "Нет данных API",
@@ -75,7 +77,6 @@ def item():
                 "link": link
             }
         else:
-            # Если данные получены, формируем ответ
             result = {
                 "item_name": item_name,
                 "lowest_price": price_data.get("lowest_price", "N/A"),
