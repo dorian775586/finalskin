@@ -17,8 +17,9 @@ def get_dmarket_price(item_name):
     Получает цену предмета с DMarket API.
     """
     try:
-        # DMarket API требует POST-запрос с параметрами в JSON
-        payload = {
+        # Используем GET-запрос, как и требуется для этого API
+        url = "https://api.dmarket.com/exchange/v1/market/items?side=sell"
+        params = {
             "title": item_name,
             "price_from": 0,
             "price_to": 100000,
@@ -29,17 +30,15 @@ def get_dmarket_price(item_name):
         }
         
         headers = {
-            "X-App-Id": "YOUR_DMARKET_APP_ID_HERE", # В реальном приложении нужно использовать ваш App ID
-            "Content-Type": "application/json"
+            "X-App-Id": "YOUR_DMARKET_APP_ID_HERE" # В реальном приложении нужно использовать ваш App ID
         }
-        
-        # Исправленный запрос с методом POST
-        resp = requests.post("https://api.dmarket.com/exchange/v1/market/items?side=sell", json=payload, headers=headers, timeout=10)
+
+        # Отправляем GET-запрос с правильными параметрами
+        resp = requests.get(url, params=params, headers=headers, timeout=10)
         resp.raise_for_status()
         price_data = resp.json()
 
         if price_data.get('status') == 'ok' and price_data.get('objects'):
-            # DMarket prices are in cents, so we convert them to dollars
             lowest_price = float(price_data['objects'][0]['price']['USD']['amount']) / 100.0
             return f"${lowest_price:.2f}"
         else:
