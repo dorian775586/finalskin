@@ -37,3 +37,5 @@ def get_dmarket_price(item_name):
 if __name__ == "__main__":
     test_item = "AWP | Duality (Field-Tested)"
     print(get_dmarket_price(test_item))
+git add .
+git commit -m "Объединение логики DMarket и Steam в server.py"

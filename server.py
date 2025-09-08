@@ -4,9 +4,6 @@ import requests
 import urllib.parse
 from flask import Flask, request, jsonify, render_template
 
-# Импортируем нашу новую функцию
-from dmarket_api import get_dmarket_price
-
 app = Flask(__name__)
 
 # Получение URL базы данных из переменных окружения
@@ -14,6 +11,42 @@ DATABASE_URL = os.environ.get('DATABASE_URL')
 
 STEAM_APP_ID = 730  # ID игры Counter-Strike
 STEAM_CURRENCY = 1  # USD
+
+def get_dmarket_price(item_name):
+    """
+    Получает цену предмета с DMarket API.
+    """
+    try:
+        # DMarket API требует параметры в теле запроса (POST)
+        payload = {
+            "title": item_name,
+            "price_from": 0,
+            "price_to": 100000,
+            "currency": "USD",
+            "orderBy": "price",
+            "orderDir": "asc",
+            "limit": 1
+        }
+        
+        headers = {
+            "X-App-Id": "YOUR_DMARKET_APP_ID_HERE", # В реальном приложении нужно использовать ваш App ID
+            "Content-Type": "application/json"
+        }
+        
+        # Исправленный URL
+        resp = requests.post("https://api.dmarket.com/exchange/v1/market/items?side=sell", json=payload, headers=headers, timeout=10)
+        resp.raise_for_status()
+        price_data = resp.json()
+
+        if price_data.get('status') == 'ok' and price_data.get('objects'):
+            # DMarket prices are in cents, so we convert them to dollars
+            lowest_price = float(price_data['objects'][0]['price']['USD']['amount']) / 100.0
+            return f"${lowest_price:.2f}"
+        else:
+            return None
+    except requests.RequestException as e:
+        print(f"Ошибка при запросе DMarket API: {e}")
+        return None
 
 @app.route('/')
 def index():
@@ -41,16 +74,21 @@ def search():
         return jsonify({'error': 'Ошибка при работе с базой данных'}), 500
     return jsonify({'results': results})
 
-# Старый эндпоинт для Steam API (оставлен для справки)
-@app.route('/item')
-def item():
+@app.route('/combined_item')
+def combined_item():
     """
-    API-эндпоинт для получения информации о предмете по его market_hash_name.
+    API-эндпоинт для получения информации о предмете
+    со Steam и DMarket и выбора лучшей цены.
     """
     item_name = request.args.get('name')
     if not item_name:
         return jsonify({'error': 'Параметр name обязателен'}), 400
 
+    steam_price = None
+    dmarket_price = None
+    steam_link = None
+    
+    # 1. Запрос к Steam API
     try:
         price_url = "https://steamcommunity.com/market/priceoverview/"
         params = {
@@ -61,111 +99,64 @@ def item():
         resp = requests.get(price_url, params=params, timeout=10)
         resp.raise_for_status()
         price_data = resp.json()
-
-        encoded_item_name = urllib.parse.quote(item_name)
-        link = f"https://steamcommunity.com/market/listings/{STEAM_APP_ID}/{encoded_item_name}"
-
-        if not price_data or price_data.get('success') is False:
-            result = {
-                "item_name": item_name,
-                "lowest_price": "Нет данных API",
-                "median_price": "Нет данных API",
-                "volume": "Нет данных API",
-                "link": link
-            }
-        else:
-            result = {
-                "item_name": item_name,
-                "lowest_price": price_data.get("lowest_price", "N/A"),
-                "median_price": price_data.get("median_price", "N/A"),
-                "volume": price_data.get("volume", "N/A"),
-                "link": link
-            }
-        
-        return jsonify(result)
-
+        if price_data.get('success'):
+            steam_price = price_data.get("lowest_price")
+            # Cleaning the price string from currency symbols
+            if steam_price:
+                steam_price_float = float(steam_price.replace('$', '').replace(' USD', '').replace(',', ''))
+            encoded_item_name = urllib.parse.quote(item_name)
+            steam_link = f"https://steamcommunity.com/market/listings/{STEAM_APP_ID}/{encoded_item_name}"
     except requests.RequestException as e:
         print(f"Ошибка при запросе Steam API: {e}")
-        return jsonify({'error': 'Не удалось получить данные с Steam'}), 500
 
-@app.route('/combined_item')
-def combined_item():
-    """
-    API-эндпоинт для получения самой низкой цены с нескольких площадок.
-    """
-    item_name = request.args.get('name')
-    if not item_name:
-        return jsonify({'error': 'Параметр name обязателен'}), 400
+    # 2. Запрос к DMarket API
+    dmarket_price = get_dmarket_price(item_name)
+    if dmarket_price:
+        dmarket_price_float = float(dmarket_price.replace('$', ''))
+        dmarket_link = f"https://dmarket.com/ingame-items/item-list?title={urllib.parse.quote(item_name)}"
 
-    steam_price_data = None
-    dmarket_price_data = None
-    
-    # 1. Запрос цены со Steam API
-    try:
-        price_url = "https://steamcommunity.com/market/priceoverview/"
-        params = {
-            "appid": STEAM_APP_ID,
-            "currency": STEAM_CURRENCY,
-            "market_hash_name": item_name
-        }
-        resp = requests.get(price_url, params=params, timeout=10)
-        resp.raise_for_status()
-        steam_data = resp.json()
-        
-        if steam_data.get('success'):
-            lowest_price_str = steam_data.get("lowest_price", "N/A")
-            # Конвертируем цену в число для сравнения
-            if lowest_price_str != "N/A":
-                # Убираем значок валюты и запятые, чтобы получить float
-                steam_price = float(lowest_price_str.replace('$', '').replace(',', '.'))
-                steam_price_data = {
-                    'price': steam_price,
-                    'source': 'Steam',
-                    'link': f"https://steamcommunity.com/market/listings/{STEAM_APP_ID}/{urllib.parse.quote(item_name)}"
-                }
-    except requests.RequestException:
-        print(f"Не удалось получить данные со Steam для предмета: {item_name}")
+    # 3. Сравнение цен и выбор лучшей
+    if steam_price and dmarket_price:
+        steam_price_float = float(steam_price.replace('$', '').replace(' USD', '').replace(',', ''))
+        dmarket_price_float = float(dmarket_price.replace('$', ''))
 
-    # 2. Запрос цены с DMarket
-    dmarket_data = get_dmarket_price(item_name)
-    if dmarket_data:
-        # Убираем значок валюты и конвертируем в float
-        dmarket_price = float(dmarket_data['lowest_price'].replace('$', ''))
-        dmarket_price_data = {
-            'price': dmarket_price,
-            'source': 'DMarket',
-            'link': dmarket_data['link']
-        }
-
-    # 3. Сравнение и выбор самой низкой цены
-    final_result = {
-        'item_name': item_name,
-        'lowest_price': "Нет данных",
-        'source': "N/A",
-        'link': "N/A"
-    }
-
-    if steam_price_data and dmarket_price_data:
-        if steam_price_data['price'] <= dmarket_price_data['price']:
-            final_result['lowest_price'] = steam_price_data['lowest_price']
-            final_result['source'] = steam_price_data['source']
-            final_result['link'] = steam_price_data['link']
+        if dmarket_price_float < steam_price_float:
+            result = {
+                "item_name": item_name,
+                "lowest_price": dmarket_price,
+                "source": "DMarket",
+                "link": dmarket_link
+            }
         else:
-            final_result['lowest_price'] = dmarket_price_data['lowest_price']
-            final_result['source'] = dmarket_price_data['source']
-            final_result['link'] = dmarket_price_data['link']
-    elif steam_price_data:
-        final_result['lowest_price'] = steam_price_data['lowest_price']
-        final_result['source'] = steam_price_data['source']
-        final_result['link'] = steam_price_data['link']
-    elif dmarket_price_data:
-        final_result['lowest_price'] = dmarket_price_data['lowest_price']
-        final_result['source'] = dmarket_price_data['source']
-        final_result['link'] = dmarket_price_data['link']
-
-    return jsonify(final_result)
-
+            result = {
+                "item_name": item_name,
+                "lowest_price": steam_price,
+                "source": "Steam",
+                "link": steam_link
+            }
+    elif steam_price:
+        result = {
+            "item_name": item_name,
+            "lowest_price": steam_price,
+            "source": "Steam",
+            "link": steam_link
+        }
+    elif dmarket_price:
+        result = {
+            "item_name": item_name,
+            "lowest_price": dmarket_price,
+            "source": "DMarket",
+            "link": dmarket_link
+        }
+    else:
+        result = {
+            "item_name": item_name,
+            "lowest_price": "Нет данных",
+            "source": "N/A",
+            "link": ""
+        }
+    
+    return jsonify(result)
 
 if __name__ == '__main__':
-    # Запуск приложения для локальной отладки
     app.run(debug=True)
