@@ -1,90 +1,137 @@
-<!-- Контейнер для карточки предмета -->
-<div id="itemCard" class="w-full bg-slate-800 rounded-lg shadow-lg p-4 mt-4 hidden"></div>
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Поиск скинов CS</title>
+    <!-- Подключение Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #1a202c;
+            color: #e2e8f0;
+        }
+        .container {
+            max-width: 768px;
+        }
+        .list-item:hover {
+            background-color: #2d3748;
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen p-4">
+    <div class="container mx-auto flex flex-col items-center">
+        <!-- Заголовок -->
+        <h1 class="text-4xl font-bold mb-6 text-white text-center">
+            Поиск скинов CS:GO / CS2
+        </h1>
 
-<script>
-    document.addEventListener('DOMContentLoaded', () => {
-        const searchInput = document.getElementById('searchInput');
-        const resultsContainer = document.getElementById('results-container');
-        const resultsList = document.getElementById('resultsList');
-        const noResults = document.getElementById('noResults');
-        const itemCard = document.getElementById('itemCard');
-        let typingTimeout;
+        <!-- Поле поиска -->
+        <div class="w-full relative max-w-lg">
+            <input type="text" id="searchInput" placeholder="Введите название скина..."
+                   class="w-full p-4 pl-10 rounded-full bg-slate-700 text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <svg class="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" fill="currentColor" viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg">
+                <path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"></path>
+            </svg>
+        </div>
 
-        searchInput.addEventListener('input', () => {
-            const query = searchInput.value.trim();
-            clearTimeout(typingTimeout);
+        <!-- Контейнер для результатов -->
+        <div id="results-container" class="w-full bg-slate-800 rounded-lg shadow-lg mt-4 hidden">
+            <ul id="resultsList" class="divide-y divide-slate-700"></ul>
+            <p id="noResults" class="p-3 text-slate-400 text-center hidden">Ничего не найдено</p>
+        </div>
 
-            if (query.length > 2) {
-                typingTimeout = setTimeout(() => {
-                    fetchResults(query);
-                }, 300);
-            } else {
-                resultsContainer.style.display = 'none';
+        <!-- Контейнер для карточки предмета -->
+        <div id="itemCard" class="w-full bg-slate-800 rounded-lg shadow-lg p-4 mt-4 hidden"></div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const searchInput = document.getElementById('searchInput');
+            const resultsContainer = document.getElementById('results-container');
+            const resultsList = document.getElementById('resultsList');
+            const noResults = document.getElementById('noResults');
+            const itemCard = document.getElementById('itemCard');
+            let typingTimeout;
+
+            searchInput.addEventListener('input', () => {
+                const query = searchInput.value.trim();
+                clearTimeout(typingTimeout);
+
+                if (query.length > 2) {
+                    typingTimeout = setTimeout(() => {
+                        fetchResults(query);
+                    }, 300);
+                } else {
+                    resultsContainer.style.display = 'none';
+                    resultsList.innerHTML = '';
+                    itemCard.classList.add('hidden');
+                }
+            });
+
+            async function fetchResults(query) {
+                try {
+                    const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
+                    const data = await response.json();
+
+                    if (data.error) {
+                        console.error('Ошибка сервера:', data.error);
+                        return;
+                    }
+
+                    displayResults(data.results);
+                } catch (error) {
+                    console.error('Ошибка при получении данных:', error);
+                }
+            }
+
+            function displayResults(results) {
                 resultsList.innerHTML = '';
-                itemCard.classList.add('hidden');
+                if (results.length > 0) {
+                    results.forEach(item => {
+                        const li = document.createElement('li');
+                        li.textContent = item;
+                        li.className = 'list-item p-3 animate-in';
+                        
+                        // Обработчик клика на подсказку
+                        li.addEventListener('click', () => fetchItemInfo(item));
+
+                        resultsList.appendChild(li);
+                    });
+                    resultsContainer.style.display = 'block';
+                    noResults.classList.add('hidden');
+                } else {
+                    resultsContainer.style.display = 'block';
+                    noResults.classList.remove('hidden');
+                }
+            }
+
+            // Функция для получения инфы по конкретному предмету
+            async function fetchItemInfo(itemName) {
+                try {
+                    const response = await fetch(`/item?name=${encodeURIComponent(itemName)}`);
+                    const data = await response.json();
+
+                    if (data.error) {
+                        itemCard.innerHTML = `<p class="text-red-400">Ошибка: ${data.error}</p>`;
+                    } else {
+                        itemCard.innerHTML = `
+                            <h2 class="text-2xl font-bold mb-2">${data.item_name}</h2>
+                            <p><span class="font-semibold">Минимальная цена:</span> ${data.lowest_price}</p>
+                            <p><span class="font-semibold">Средняя цена:</span> ${data.median_price}</p>
+                            <p><span class="font-semibold">Продажи за 24ч:</span> ${data.volume}</p>
+                            <a href="${data.link}" target="_blank" 
+                               class="text-blue-400 hover:underline mt-2 inline-block">Открыть в Steam</a>
+                        `;
+                    }
+
+                    itemCard.classList.remove('hidden');
+                } catch (error) {
+                    console.error('Ошибка при получении данных о предмете:', error);
+                }
             }
         });
-
-        async function fetchResults(query) {
-            try {
-                const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
-                const data = await response.json();
-
-                if (data.error) {
-                    console.error('Ошибка сервера:', data.error);
-                    return;
-                }
-
-                displayResults(data.results);
-            } catch (error) {
-                console.error('Ошибка при получении данных:', error);
-            }
-        }
-
-        function displayResults(results) {
-            resultsList.innerHTML = '';
-            if (results.length > 0) {
-                results.forEach(item => {
-                    const li = document.createElement('li');
-                    li.textContent = item;
-                    li.className = 'list-item p-3 animate-in';
-                    
-                    // 🔥 Обработчик клика на подсказку
-                    li.addEventListener('click', () => fetchItemInfo(item));
-
-                    resultsList.appendChild(li);
-                });
-                resultsContainer.style.display = 'block';
-                noResults.classList.add('hidden');
-            } else {
-                resultsContainer.style.display = 'block';
-                noResults.classList.remove('hidden');
-            }
-        }
-
-        // Функция для получения инфы по конкретному предмету
-        async function fetchItemInfo(itemName) {
-            try {
-                const response = await fetch(`/item?name=${encodeURIComponent(itemName)}`);
-                const data = await response.json();
-
-                if (data.error) {
-                    itemCard.innerHTML = `<p class="text-red-400">Ошибка: ${data.error}</p>`;
-                } else {
-                    itemCard.innerHTML = `
-                        <h2 class="text-2xl font-bold mb-2">${data.item_name}</h2>
-                        <p><span class="font-semibold">Минимальная цена:</span> ${data.lowest_price}</p>
-                        <p><span class="font-semibold">Средняя цена:</span> ${data.median_price}</p>
-                        <p><span class="font-semibold">Продажи за 24ч:</span> ${data.volume}</p>
-                        <a href="${data.link}" target="_blank" 
-                           class="text-blue-400 hover:underline mt-2 inline-block">Открыть в Steam</a>
-                    `;
-                }
-
-                itemCard.classList.remove('hidden');
-            } catch (error) {
-                console.error('Ошибка при получении данных о предмете:', error);
-            }
-        }
-    });
-</script>
+    </script>
+</body>
+</html>
