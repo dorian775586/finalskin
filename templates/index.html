@@ -1,0 +1,90 @@
+<!-- Контейнер для карточки предмета -->
+<div id="itemCard" class="w-full bg-slate-800 rounded-lg shadow-lg p-4 mt-4 hidden"></div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        const searchInput = document.getElementById('searchInput');
+        const resultsContainer = document.getElementById('results-container');
+        const resultsList = document.getElementById('resultsList');
+        const noResults = document.getElementById('noResults');
+        const itemCard = document.getElementById('itemCard');
+        let typingTimeout;
+
+        searchInput.addEventListener('input', () => {
+            const query = searchInput.value.trim();
+            clearTimeout(typingTimeout);
+
+            if (query.length > 2) {
+                typingTimeout = setTimeout(() => {
+                    fetchResults(query);
+                }, 300);
+            } else {
+                resultsContainer.style.display = 'none';
+                resultsList.innerHTML = '';
+                itemCard.classList.add('hidden');
+            }
+        });
+
+        async function fetchResults(query) {
+            try {
+                const response = await fetch(`/search?q=${encodeURIComponent(query)}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    console.error('Ошибка сервера:', data.error);
+                    return;
+                }
+
+                displayResults(data.results);
+            } catch (error) {
+                console.error('Ошибка при получении данных:', error);
+            }
+        }
+
+        function displayResults(results) {
+            resultsList.innerHTML = '';
+            if (results.length > 0) {
+                results.forEach(item => {
+                    const li = document.createElement('li');
+                    li.textContent = item;
+                    li.className = 'list-item p-3 animate-in';
+                    
+                    // 🔥 Обработчик клика на подсказку
+                    li.addEventListener('click', () => fetchItemInfo(item));
+
+                    resultsList.appendChild(li);
+                });
+                resultsContainer.style.display = 'block';
+                noResults.classList.add('hidden');
+            } else {
+                resultsContainer.style.display = 'block';
+                noResults.classList.remove('hidden');
+            }
+        }
+
+        // Функция для получения инфы по конкретному предмету
+        async function fetchItemInfo(itemName) {
+            try {
+                const response = await fetch(`/item?name=${encodeURIComponent(itemName)}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    itemCard.innerHTML = `<p class="text-red-400">Ошибка: ${data.error}</p>`;
+                } else {
+                    itemCard.innerHTML = `
+                        <h2 class="text-2xl font-bold mb-2">${data.item_name}</h2>
+                        <p><span class="font-semibold">Минимальная цена:</span> ${data.lowest_price}</p>
+                        <p><span class="font-semibold">Средняя цена:</span> ${data.median_price}</p>
+                        <p><span class="font-semibold">Продажи за 24ч:</span> ${data.volume}</p>
+                        <a href="${data.link}" target="_blank" 
+                           class="text-blue-400 hover:underline mt-2 inline-block">Открыть в Steam</a>
+                    `;
+                }
+
+                itemCard.classList.remove('hidden');
+            } catch (error) {
+                console.error('Ошибка при получении данных о предмете:', error);
+            }
+        }
+    });
+</script>
