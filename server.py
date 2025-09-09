@@ -1,123 +1,130 @@
-from flask import Flask, request, jsonify, render_template
-import sqlite3
+# Импортируем необходимые библиотеки
+import os
 import requests
-import json
+import psycopg2
 import logging
 
-app = Flask(__name__, template_folder='templates')
+from flask import Flask, jsonify, request
+
+# Создаем экземпляр Flask-приложения
+app = Flask(__name__)
+# Настраиваем логирование
 logging.basicConfig(level=logging.INFO)
 
-# DMarket API settings
-DM_API_ID = '3e113a3b-253c-40ea-9b16-5c5f89be9d4a'
-DM_API_URL = "https://api.dmarket.com/exchange/v1/market/items"
+# Ключи API
+DMARKET_APP_ID = "0xEB3D26980C99b1ca13b29394740b150651c39AAe"
 
+# Функция для подключения к базе данных PostgreSQL
 def get_db_connection():
-    conn = sqlite3.connect('skins.db')
-    conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        # Получаем URL базы данных из переменных окружения Render
+        DATABASE_URL = os.environ.get("DATABASE_URL")
+        if not DATABASE_URL:
+            logging.error("DATABASE_URL environment variable is not set.")
+            raise ValueError("DATABASE_URL is not configured.")
 
-@app.route('/')
-def home():
-    return render_template('index.html')
+        conn = psycopg2.connect(DATABASE_URL)
+        return conn
+    except psycopg2.OperationalError as e:
+        logging.error(f"Error connecting to the database: {e}")
+        raise RuntimeError("Failed to connect to the database") from e
+    except Exception as e:
+        logging.error(f"An unexpected error occurred during database connection: {e}")
+        raise RuntimeError("An unexpected error occurred") from e
 
-@app.route('/suggest')
-def suggest_skins():
-    query = request.args.get('q', '').lower()
-    if not query:
-        return jsonify(suggestions=[])
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute(
-        "SELECT name FROM skins WHERE name LIKE ? ORDER BY name LIMIT 10",
-        ('%' + query + '%',)
-    )
-    
-    suggestions = [row['name'] for row in cursor.fetchall()]
-    conn.close()
-    
-    return jsonify(suggestions=suggestions)
+# Получение данных из Steam Web API
+def get_steam_price(item_name):
+    try:
+        url = "https://steamcommunity.com/market/priceoverview/"
+        params = {
+            "appid": 730,
+            "currency": 1,
+            "market_hash_name": item_name
+        }
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        if data and data.get("success"):
+            return {
+                "source": "Steam",
+                "item_name": item_name,
+                "lowest_price": data.get("lowest_price"),
+                "volume": data.get("volume")
+            }
+        return None
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Ошибка при запросе к Steam API: {e}")
+        return None
 
-@app.route('/search')
-def search_steam():
-    item_name = request.args.get('item_name', '')
-    if not item_name:
-        return jsonify(error="Название предмета не указано"), 400
-    
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute(
-        "SELECT steam_price_id, url_path, lowest_price FROM skins WHERE name = ?",
-        (item_name,)
-    )
-    result = cursor.fetchone()
-    conn.close()
-    
-    if not result:
-        return jsonify(error="Скин не найден в базе данных"), 404
-    
-    steam_url = f"https://steamcommunity.com/market/listings/730/{result['url_path']}"
-    
-    return jsonify({
-        "item_name": item_name,
-        "lowest_price": result['lowest_price'],
-        "source": "Steam",
-        "url": steam_url
-    })
-
-@app.route('/dmarket-search')
-def dmarket_search():
-    item_name = request.args.get('item_name', '')
-    if not item_name:
-        return jsonify(error="Название предмета не указано"), 400
-
+# Получение данных с DMarket API
+def get_dmarket_price(item_name):
+    url = "https://api.dmarket.com/exchange/v1/market/items"
     headers = {
-        'X-App-Id': DM_API_ID,
-        'Content-Type': 'application/json'
+        "X-App-Id": DMARKET_APP_ID
     }
-
-    payload = {
+    params = {
         "title": item_name,
-        "limit": 1
+        "limit": 1,
+        "orderBy": "price",
+        "orderDir": "asc",
+        "currency": "USD"
     }
 
     try:
-        response = requests.post(
-            f"{DM_API_URL}/search",
-            headers=headers,
-            json=payload,
-            timeout=10
-        )
-        response.raise_for_status()
-        data = response.json()
-        
-        if not data.get('objects'):
-            return jsonify(error="Скин не найден на DMarket"), 404
-        
-        item = data['objects'][0]
-        
-        # DMarket prices are in USD cents
-        lowest_price_usd = item.get('min_price', '0')
-        lowest_price = f"${float(lowest_price_usd) / 100:.2f}"
-        
-        return jsonify({
-            "item_name": item_name,
-            "lowest_price": lowest_price,
+        resp = requests.get(url, headers=headers, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+
+        items = data.get("objects", [])
+        if not items:
+            logging.info(f"На DMarket ничего не найдено для: {item_name}")
+            return None
+
+        first = items[0]
+        price_usd = float(first["price"]["USD"]) / 100
+        return {
             "source": "DMarket",
-            "url": f"https://dmarket.com/ru/ingame-items/item-list/csgo-skins?title={item_name}"
-        })
+            "item_name": item_name,
+            "lowest_price": f"${price_usd:.2f}",
+            "link": f"https://dmarket.com/ingame-items/item-list/csgo-skins?title={item_name}"
+        }
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error fetching data from DMarket API: {e}")
-        return jsonify(error=f"Ошибка при подключении к DMarket: {e}"), 500
-    except json.JSONDecodeError:
-        logging.error("Failed to decode JSON from DMarket response.")
-        return jsonify(error="Неверный ответ от DMarket"), 500
+        logging.error(f"Ошибка при запросе к DMarket API: {e}")
+        return None
     except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}")
-        return jsonify(error="Произошла непредвиденная ошибка"), 500
+        logging.error(f"Непредвиденная ошибка в get_dmarket_price: {e}")
+        return None
 
+# Маршрут для поиска Steam
+@app.route('/search')
+def search_steam():
+    item_name = request.args.get('q')
+    if not item_name:
+        return jsonify({"error": "Требуется 'q' параметр"}), 400
+    
+    steam_item = get_steam_price(item_name)
+    if not steam_item:
+        return jsonify({"message": "Ничего не найдено в Steam"}), 404
+        
+    return jsonify(steam_item)
+
+# Маршрут для поиска DMarket
+@app.route('/dmarket-search')
+def search_dmarket():
+    item_name = request.args.get('q')
+    if not item_name:
+        return jsonify({"error": "Требуется 'q' параметр"}), 400
+
+    dmarket_item = get_dmarket_price(item_name)
+    if not dmarket_item:
+        return jsonify({"message": "Ничего не найдено на DMarket"}), 404
+
+    return jsonify(dmarket_item)
+
+# Этот блок кода будет выполняться только при локальном запуске
 if __name__ == '__main__':
-    app.run(debug=True)
+    # Получаем порт из переменной окружения Render, по умолчанию 5000
+    port = int(os.environ.get("PORT", 5000))
+    # Запускаем приложение на всех интерфейсах и на указанном порту
+    app.run(host="0.0.0.0", port=port, debug=False)
