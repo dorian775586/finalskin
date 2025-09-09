@@ -4,7 +4,7 @@ import requests
 import psycopg2
 import logging
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 
 # Создаем экземпляр Flask-приложения
 app = Flask(__name__)
@@ -95,6 +95,15 @@ def get_dmarket_price(item_name):
     except Exception as e:
         logging.error(f"Непредвиденная ошибка в get_dmarket_price: {e}")
         return None
+
+# ---
+# Маршруты для веб-сервера
+# ---
+
+# Маршрут для главной страницы, который возвращает index.html
+@app.route('/')
+def serve_index():
+    return send_from_directory('.', 'index.html')
 
 # Маршрут для поиска Steam
 @app.route('/search')
