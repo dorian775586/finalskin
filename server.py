@@ -1,159 +1,123 @@
-import os
-import psycopg2
-import requests
-import urllib.parse
 from flask import Flask, request, jsonify, render_template
+import sqlite3
+import requests
+import json
+import logging
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='templates')
+logging.basicConfig(level=logging.INFO)
 
-# Получение URL базы данных из переменных окружения
-DATABASE_URL = os.environ.get('DATABASE_URL')
+# DMarket API settings
+DM_API_ID = '3e113a3b-253c-40ea-9b16-5c5f89be9d4a'
+DM_API_URL = "https://api.dmarket.com/exchange/v1/market/items"
 
-STEAM_APP_ID = 730  # ID игры Counter-Strike
-STEAM_CURRENCY = 1  # USD
-
-def get_dmarket_price(item_name):
-    """
-    Получает цену предмета с DMarket API.
-    """
-    try:
-        url = "https://api.dmarket.com/exchange/v1/market/items"
-        params = {
-            "title": item_name,
-            "side": "sell",
-            "currency": "USD",
-            "orderBy": "price",
-            "orderDir": "asc",
-            "limit": 1,
-            "gameId": "a8db"
-        }
-        
-        headers = {
-            "X-App-Id": "0xEB3D26980C99b1ca13b29394740b150651c39AAe"
-        }
-
-        resp = requests.get(url, params=params, headers=headers, timeout=10)
-        resp.raise_for_status()
-        price_data = resp.json()
-
-        if price_data.get('status') == 'ok' and price_data.get('objects'):
-            lowest_price = float(price_data['objects'][0]['price']['USD']) / 100.0
-            return f"${lowest_price:.2f}"
-        else:
-            print(f"DMarket API: Нет данных о предмете '{item_name}'")
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"Ошибка при запросе DMarket API: {e}")
-        return None
+def get_db_connection():
+    conn = sqlite3.connect('skins.db')
+    conn.row_factory = sqlite3.Row
+    return conn
 
 @app.route('/')
-def index():
-    """Главная страница приложения."""
+def home():
     return render_template('index.html')
 
+@app.route('/suggest')
+def suggest_skins():
+    query = request.args.get('q', '').lower()
+    if not query:
+        return jsonify(suggestions=[])
+    
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        "SELECT name FROM skins WHERE name LIKE ? ORDER BY name LIMIT 10",
+        ('%' + query + '%',)
+    )
+    
+    suggestions = [row['name'] for row in cursor.fetchall()]
+    conn.close()
+    
+    return jsonify(suggestions=suggestions)
+
 @app.route('/search')
-def search():
-    """API-эндпоинт для поиска скинов по части названия."""
-    query = request.args.get('q', '').strip().lower()
-    results = []
-    if not DATABASE_URL:
-        print('Ошибка: DATABASE_URL не найдена.')
-        return jsonify({'error': 'DATABASE_URL не найдена'}), 500
-    try:
-        with psycopg2.connect(DATABASE_URL) as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    "SELECT market_hash_name FROM skins WHERE LOWER(market_hash_name) LIKE %s LIMIT 10",
-                    (f"%{query}%",)
-                )
-                results = [row[0] for row in cursor.fetchall()]
-    except psycopg2.Error as e:
-        print(f'Ошибка базы данных: {e}')
-        return jsonify({'error': 'Ошибка при работе с базой данных'}), 500
-    return jsonify({'results': results})
-
-@app.route('/combined_item')
-def combined_item():
-    """
-    API-эндпоинт для получения информации о предмете
-    со Steam и DMarket и выбора лучшей цены.
-    """
-    item_name = request.args.get('name')
+def search_steam():
+    item_name = request.args.get('item_name', '')
     if not item_name:
-        return jsonify({'error': 'Параметр name обязателен'}), 400
-
-    steam_price = None
-    dmarket_price = None
-    steam_link = None
+        return jsonify(error="Название предмета не указано"), 400
     
-    # 1. Запрос к Steam API
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute(
+        "SELECT steam_price_id, url_path, lowest_price FROM skins WHERE name = ?",
+        (item_name,)
+    )
+    result = cursor.fetchone()
+    conn.close()
+    
+    if not result:
+        return jsonify(error="Скин не найден в базе данных"), 404
+    
+    steam_url = f"https://steamcommunity.com/market/listings/730/{result['url_path']}"
+    
+    return jsonify({
+        "item_name": item_name,
+        "lowest_price": result['lowest_price'],
+        "source": "Steam",
+        "url": steam_url
+    })
+
+@app.route('/dmarket-search')
+def dmarket_search():
+    item_name = request.args.get('item_name', '')
+    if not item_name:
+        return jsonify(error="Название предмета не указано"), 400
+
+    headers = {
+        'X-App-Id': DM_API_ID,
+        'Content-Type': 'application/json'
+    }
+
+    payload = {
+        "title": item_name,
+        "limit": 1
+    }
+
     try:
-        price_url = "https://steamcommunity.com/market/priceoverview/"
-        params = {
-            "appid": STEAM_APP_ID,
-            "currency": STEAM_CURRENCY,
-            "market_hash_name": item_name
-        }
-        resp = requests.get(price_url, params=params, timeout=10)
-        resp.raise_for_status()
-        price_data = resp.json()
-        if price_data.get('success'):
-            steam_price = price_data.get("lowest_price")
-            if steam_price:
-                steam_price_float = float(steam_price.replace('$', '').replace(' USD', '').replace(',', ''))
-            encoded_item_name = urllib.parse.quote(item_name)
-            steam_link = f"https://steamcommunity.com/market/listings/{STEAM_APP_ID}/{encoded_item_name}"
-    except requests.RequestException as e:
-        print(f"Ошибка при запросе Steam API: {e}")
-
-    # 2. Запрос к DMarket API
-    dmarket_price = get_dmarket_price(item_name)
-    if dmarket_price:
-        dmarket_price_float = float(dmarket_price.replace('$', ''))
-        dmarket_link = f"https://dmarket.com/ingame-items/item-list/csgo-skins?title={urllib.parse.quote(item_name)}"
-
-    # 3. Сравнение цен и выбор лучшей
-    if steam_price and dmarket_price:
-        steam_price_float = float(steam_price.replace('$', '').replace(' USD', '').replace(',', ''))
-        dmarket_price_float = float(dmarket_price.replace('$', ''))
-
-        if dmarket_price_float < steam_price_float:
-            result = {
-                "item_name": item_name,
-                "lowest_price": dmarket_price,
-                "source": "DMarket",
-                "link": dmarket_link
-            }
-        else:
-            result = {
-                "item_name": item_name,
-                "lowest_price": steam_price,
-                "source": "Steam",
-                "link": steam_link
-            }
-    elif steam_price:
-        result = {
+        response = requests.post(
+            f"{DM_API_URL}/search",
+            headers=headers,
+            json=payload,
+            timeout=10
+        )
+        response.raise_for_status()
+        data = response.json()
+        
+        if not data.get('objects'):
+            return jsonify(error="Скин не найден на DMarket"), 404
+        
+        item = data['objects'][0]
+        
+        # DMarket prices are in USD cents
+        lowest_price_usd = item.get('min_price', '0')
+        lowest_price = f"${float(lowest_price_usd) / 100:.2f}"
+        
+        return jsonify({
             "item_name": item_name,
-            "lowest_price": steam_price,
-            "source": "Steam",
-            "link": steam_link
-        }
-    elif dmarket_price:
-        result = {
-            "item_name": item_name,
-            "lowest_price": dmarket_price,
+            "lowest_price": lowest_price,
             "source": "DMarket",
-            "link": dmarket_link
-        }
-    else:
-        result = {
-            "item_name": item_name,
-            "lowest_price": "Нет данных",
-            "source": "N/A",
-            "link": ""
-        }
-    
-    return jsonify(result)
+            "url": f"https://dmarket.com/ru/ingame-items/item-list/csgo-skins?title={item_name}"
+        })
+
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error fetching data from DMarket API: {e}")
+        return jsonify(error=f"Ошибка при подключении к DMarket: {e}"), 500
+    except json.JSONDecodeError:
+        logging.error("Failed to decode JSON from DMarket response.")
+        return jsonify(error="Неверный ответ от DMarket"), 500
+    except Exception as e:
+        logging.error(f"An unexpected error occurred: {e}")
+        return jsonify(error="Произошла непредвиденная ошибка"), 500
 
 if __name__ == '__main__':
     app.run(debug=True)

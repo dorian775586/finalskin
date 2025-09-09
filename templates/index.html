@@ -5,134 +5,198 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Поиск скинов CS:GO / CS2</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap');
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: #1a1a2e;
-            color: #e0e0e0;
-        }
-        .container {
-            max-width: 800px;
-        }
-        .search-box {
-            background-color: #2e2e4e;
-            border: 1px solid #4a4a6e;
-        }
-        .list-item {
-            background-color: #2e2e4e;
-            cursor: pointer;
-            transition: background-color 0.2s;
-        }
-        .list-item:hover {
-            background-color: #4a4a6e;
-        }
-        .item-card {
-            background-color: #2e2e4e;
+            background-color: #0d1117;
+            color: #c9d1d9;
         }
     </style>
 </head>
-<body class="p-4 flex flex-col items-center min-h-screen">
+<body class="p-8">
+    <div class="max-w-3xl mx-auto space-y-8">
+        <h1 class="text-3xl font-bold text-center mb-6">Поиск скинов CS:GO / CS2</h1>
 
-    <div class="container mx-auto">
-        <h1 class="text-4xl font-bold text-center my-8">Поиск скинов CS:GO / CS2</h1>
-        
-        <div class="relative w-full">
-            <input type="text" id="searchInput" placeholder="Введите название скина" class="search-box w-full p-4 rounded-lg outline-none focus:border-purple-500">
-            <div id="searchResults" class="absolute z-10 w-full mt-2 rounded-lg max-h-60 overflow-y-auto"></div>
+        <!-- Marketplace Selection Buttons -->
+        <div class="flex justify-center space-x-4 mb-8">
+            <button id="steam-btn" class="px-6 py-2 rounded-lg font-medium transition-colors bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                Steam
+            </button>
+            <button id="dmarket-btn" class="px-6 py-2 rounded-lg font-medium transition-colors bg-gray-800 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500">
+                DMarket
+            </button>
         </div>
-        
-        <div id="itemCard" class="item-card mt-8 p-6 rounded-lg shadow-lg hidden"></div>
+
+        <div class="relative">
+            <input type="text" id="searchInput" placeholder="Название скина, например: AWP | CMYK (Minimal Wear)"
+                   class="w-full p-4 pl-12 rounded-lg bg-gray-800 text-white placeholder-gray-500 border border-transparent focus:border-blue-500 focus:ring-2 focus:ring-blue-500 transition-all">
+            <div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6 text-gray-400">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+            </div>
+        </div>
+
+        <ul id="suggestionsList" class="bg-gray-800 rounded-lg shadow-xl mt-2 max-h-64 overflow-y-auto"></ul>
+
+        <div id="results" class="space-y-6"></div>
     </div>
 
     <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const searchInput = document.getElementById('searchInput');
-            const searchResults = document.getElementById('searchResults');
-            const itemCard = document.getElementById('itemCard');
+        let timeout = null;
+        let currentMarketplace = 'steam'; // Default to Steam
 
-            let timeout = null;
+        const searchInput = document.getElementById('searchInput');
+        const suggestionsList = document.getElementById('suggestionsList');
+        const resultsDiv = document.getElementById('results');
+        const steamBtn = document.getElementById('steam-btn');
+        const dmarketBtn = document.getElementById('dmarket-btn');
 
-            searchInput.addEventListener('input', () => {
-                const query = searchInput.value;
-                if (query.length > 2) {
-                    clearTimeout(timeout);
-                    timeout = setTimeout(() => {
-                        fetchSearchResults(query);
-                    }, 300);
-                } else {
-                    searchResults.innerHTML = '';
-                    searchResults.classList.add('hidden');
-                }
-            });
-
-            function fetchSearchResults(query) {
-                fetch(`/search?q=${encodeURIComponent(query)}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        searchResults.innerHTML = '';
-                        if (data.results && data.results.length > 0) {
-                            data.results.forEach(item_name => {
-                                const div = document.createElement('div');
-                                div.textContent = item_name;
-                                div.className = 'list-item p-4 border-b border-gray-700 last:border-0';
-                                div.onclick = () => {
-                                    searchInput.value = item_name;
-                                    searchResults.innerHTML = '';
-                                    searchResults.classList.add('hidden');
-                                    fetchCombinedItemInfo(item_name);
-                                };
-                                searchResults.appendChild(div);
-                            });
-                            searchResults.classList.remove('hidden');
-                        } else {
-                            searchResults.classList.add('hidden');
-                        }
-                    })
-                    .catch(error => console.error('Ошибка при поиске:', error));
+        // Function to set the active button style
+        function setActiveButton(market) {
+            if (market === 'steam') {
+                steamBtn.classList.remove('bg-gray-800');
+                steamBtn.classList.add('bg-gray-700');
+                dmarketBtn.classList.remove('bg-gray-700');
+                dmarketBtn.classList.add('bg-gray-800');
+            } else {
+                dmarketBtn.classList.remove('bg-gray-800');
+                dmarketBtn.classList.add('bg-gray-700');
+                steamBtn.classList.remove('bg-gray-700');
+                steamBtn.classList.add('bg-gray-800');
             }
+        }
 
-            // ИЗМЕНЕНИЕ ЗДЕСЬ
-            async function fetchCombinedItemInfo(item_name) {
-                itemCard.innerHTML = `<p class="text-center text-lg">Загрузка...</p>`;
-                itemCard.classList.remove('hidden');
+        // Initial button state
+        setActiveButton('steam');
 
-                try {
-                    const response = await fetch(`/combined_item?name=${encodeURIComponent(item_name)}`);
-                    const data = await response.json();
-
-                    if (data.error) {
-                        itemCard.innerHTML = `<p class="text-red-400">Ошибка: ${data.error}</p>`;
-                    } else {
-                        itemCard.innerHTML = `
-                            <h2 class="text-2xl font-bold mb-2">${data.item_name}</h2>
-                            <p><span class="font-semibold">Самая низкая цена:</span> ${data.lowest_price}</p>
-                            <p><span class="font-semibold">Источник:</span> ${data.source}</p>
-                            <a href="${data.link}" target="_blank" class="text-blue-400 hover:underline mt-4 inline-block">Открыть в ${data.source}</a>
-                        `;
-                    }
-                } catch (error) {
-                    itemCard.innerHTML = `<p class="text-red-400">Ошибка при получении данных</p>`;
-                    console.error('Ошибка:', error);
-                }
-            }
-
-            // Старая функция, больше не используется
-            // async function fetchItemInfo(item_name) {
-            //     itemCard.innerHTML = `<p class="text-center text-lg">Загрузка...</p>`;
-            //     itemCard.classList.remove('hidden');
-
-            //     try {
-            //         const response = await fetch(`/item?name=${encodeURIComponent(item_name)}`);
-            //         const data = await response.json();
-            //         // ... старый код
-            //     } catch (error) {
-            //         console.error('Ошибка при получении данных:', error);
-            //     }
-            // }
-
+        steamBtn.addEventListener('click', () => {
+            currentMarketplace = 'steam';
+            setActiveButton('steam');
+            suggestionsList.innerHTML = '';
+            resultsDiv.innerHTML = '';
         });
-    </script>
 
+        dmarketBtn.addEventListener('click', () => {
+            currentMarketplace = 'dmarket';
+            setActiveButton('dmarket');
+            suggestionsList.innerHTML = '';
+            resultsDiv.innerHTML = '';
+        });
+
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.trim();
+            suggestionsList.innerHTML = '';
+
+            if (query.length > 2) {
+                clearTimeout(timeout);
+                timeout = setTimeout(() => fetchSuggestions(query), 500);
+            }
+        });
+
+        async function fetchSuggestions(query) {
+            const url = `/suggest?q=${encodeURIComponent(query)}`;
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                const data = await response.json();
+                renderSuggestions(data.suggestions);
+            } catch (error) {
+                console.error("Error fetching suggestions:", error);
+                suggestionsList.innerHTML = `<li class="p-4 text-red-400">Ошибка при получении подсказок</li>`;
+            }
+        }
+
+        function renderSuggestions(suggestions) {
+            suggestionsList.innerHTML = '';
+            if (suggestions.length === 0) {
+                suggestionsList.innerHTML = `<li class="p-4 text-gray-400">Нет совпадений</li>`;
+                return;
+            }
+
+            suggestions.forEach(item => {
+                const li = document.createElement('li');
+                li.className = 'px-4 py-3 cursor-pointer hover:bg-gray-700 rounded-lg transition-colors';
+                li.textContent = item;
+                li.addEventListener('click', () => {
+                    searchInput.value = item;
+                    suggestionsList.innerHTML = '';
+                    fetchResults(item);
+                });
+                suggestionsList.appendChild(li);
+            });
+        }
+
+        async function fetchResults(item) {
+            resultsDiv.innerHTML = `<div class="p-4 text-center text-gray-400">Поиск...</div>`;
+
+            let url = '';
+            if (currentMarketplace === 'steam') {
+                url = `/search?item_name=${encodeURIComponent(item)}`;
+            } else {
+                url = `/dmarket-search?item_name=${encodeURIComponent(item)}`;
+            }
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                const data = await response.json();
+                renderResults(data);
+            } catch (error) {
+                console.error("Error fetching data:", error);
+                resultsDiv.innerHTML = `<div class="p-4 text-center text-red-400">Ошибка при получении данных</div>`;
+            }
+        }
+
+        function renderResults(data) {
+            resultsDiv.innerHTML = '';
+
+            if (data.error) {
+                resultsDiv.innerHTML = `<div class="p-4 text-center text-red-400">${data.error}</div>`;
+                return;
+            }
+
+            const card = document.createElement('div');
+            card.className = 'bg-gray-800 rounded-lg p-6 shadow-xl';
+
+            const title = document.createElement('h2');
+            title.className = 'text-xl font-bold mb-2';
+            title.textContent = data.item_name;
+
+            const price = document.createElement('p');
+            price.className = 'text-lg font-semibold text-green-400 mb-2';
+            price.textContent = `Самая низкая цена: ${data.lowest_price}`;
+
+            const source = document.createElement('p');
+            source.className = 'text-gray-400';
+            source.textContent = `Источник: ${data.source}`;
+
+            const link = document.createElement('a');
+            link.className = 'inline-block mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors';
+            link.href = data.url;
+            link.target = '_blank';
+            link.textContent = 'Открыть на сайте';
+
+            card.appendChild(title);
+            card.appendChild(price);
+            card.appendChild(source);
+            card.appendChild(link);
+            resultsDiv.appendChild(card);
+        }
+    </script>
 </body>
 </html>
