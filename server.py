@@ -4,7 +4,7 @@ import requests
 import psycopg2
 import logging
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, render_template
 
 # Создаем экземпляр Flask-приложения
 app = Flask(__name__)
@@ -100,10 +100,10 @@ def get_dmarket_price(item_name):
 # Маршруты для веб-сервера
 # ---
 
-# Маршрут для главной страницы, который возвращает index.html
+# Маршрут для главной страницы, который возвращает index.html из папки templates
 @app.route('/')
 def serve_index():
-    return send_from_directory('.', 'index.html')
+    return render_template('index.html')
 
 # Маршрут для поиска Steam
 @app.route('/search')
